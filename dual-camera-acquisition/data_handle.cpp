@@ -25,7 +25,7 @@ namespace dh {
 	DataHandle::DataHandle( data::SynchronisedQueue< data::Buffer > *data_que ) 
 		:thread_( NULL ),
 		data_que_( data_que ),
-		local_driver_( "J:/" ) {
+		local_driver_( "E:/" ) {
 			//std::cout << "DataHandle()" << std::endl;
 	}
 	DataHandle::~DataHandle() {
@@ -80,6 +80,7 @@ namespace dh {
 		std::string path = local_driver_;
 		path += ZeroPadNumber( obv_start_timestamp.date().year(), 4 ) + ZeroPadNumber( obv_start_timestamp.date().month(), 2 ) + ZeroPadNumber( obv_start_timestamp.date().day(), 2 ) + "/";
 		path += ZeroPadNumber( obv_start_timestamp.time_of_day().hours(), 2 ) + ZeroPadNumber( obv_start_timestamp.time_of_day().minutes(), 2 ) + ZeroPadNumber( obv_start_timestamp.time_of_day().seconds(), 2 ) + "/";
+		path += buf.config->get_string("PortName") + "/";
 		boost::system::error_code error;
 		boost::filesystem::create_directories( path, error );
 

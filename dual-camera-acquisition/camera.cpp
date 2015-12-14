@@ -7,22 +7,18 @@
 #include <boost/date_time/posix_time/ptime.hpp>
 #include <boost/date_time/posix_time/time_formatters.hpp>
 
-#include <iostream>
-#include <string>
-
-
 #include "board-and-dll-chooser.h"
-
-
+#include "buffer.h"
 
 namespace ic {
 	Camera::Camera( data::SynchronisedQueue< data::Buffer > *data_que )
 		:thread_( NULL ),
 		data_que_( data_que ),
 		connection_lost_(true),
-		fixed_frame_(150) {
+		fixed_frame_(450),
+		enable_saving_(false) {
 			//std::cout << "Camera()" << std::endl;	
-			
+
 	}
 	Camera::~Camera() {
 		//std::cout << "~Camera()" << std::endl;
@@ -34,9 +30,11 @@ namespace ic {
 		if (!connection_lost_) {
 			ShutDown();
 		}
-		
-	}
 
+	}
+	void Camera::EnableSaving(bool v) {
+		enable_saving_ = v;
+	}
 	void Camera::operator() () try {
 		if (connection_lost_) {
 			return;
@@ -48,6 +46,7 @@ namespace ic {
 		frameindex_t no_of_buffers			= 4;
 
 		disp_id_ = CreateDisplay(8*byte_per_sample*sample_per_pixel, width_, height_);
+		//std::cout << "DISPLAY ID: " << disp_id_ << std::endl;
 		SetBufferWidth(disp_id_, width_, height_);
 		size_t total_buffer_size = width_ * height_ * sample_per_pixel * byte_per_sample * no_of_buffers;
 		mem_hndl_ = Fg_AllocMemEx(fg_, total_buffer_size, no_of_buffers);
@@ -77,10 +76,10 @@ namespace ic {
 		}
 
 		// Set CAMLINK input format 'DUAL 12-BIT'
-		//unsigned int mode = 0;
-		//if (Fg_setParameter(fg_, FG_CAMERA_LINK_CAMTYPE, &mode, cam_port_) < 0) {
-		//	fprintf(stderr, " [-] Fg_setParameter(FG_CAMERA_LINK_CAMTYPE) failed: %s\n", Fg_getLastErrorDescription(fg_));
-		//}
+		unsigned int mode = FG_CL_DUALTAP_12_BIT;
+		if (Fg_setParameter(fg_, FG_CAMERA_LINK_CAMTYPE, &mode, cam_port_) < 0) {
+			fprintf(stderr, " [-] Fg_setParameter(FG_CAMERA_LINK_CAMTYPE) failed: %s\n", Fg_getLastErrorDescription(fg_));
+		}
 		//if (Fg_setParameter(fg, FG_CAMERA_LINK_CAMTYPE, &mode, cam_port) < 0 ) {
 		//	fprintf(stderr, " [-] Fg_setParameter(FG_CAMERA_LINK_CAMTYPE) failed: %s\n", Fg_getLastErrorDescription(fg));
 		//	Fg_FreeMemEx(fg, mem_hndl);
@@ -103,9 +102,7 @@ namespace ic {
 			Fg_FreeGrabber(fg_);
 			return;
 		}
-
-
-
+		
 		if ((Fg_AcquireEx(fg_, cam_port_, GRAB_INFINITE, ACQ_STANDARD, mem_hndl_)) < 0) {
 			fprintf(stderr, " [-] Fg_AcquireEx() failed: %s\n", Fg_getLastErrorDescription(fg_));
 			Fg_FreeMemEx(fg_, mem_hndl_);
@@ -117,6 +114,12 @@ namespace ic {
 		frameindex_t last_pic_no = 0;
 		frameindex_t cur_pic_no;
 		int timeout = 4;
+		int index = 0;
+		std::string obv_start_timestamp = "";
+		std::string port_name = "PORTA";
+		if (cam_port_ == 1) {
+			port_name = "PORTB";
+		}
 		while ((cur_pic_no = Fg_getLastPicNumberBlockingEx(fg_, last_pic_no + 1, cam_port_, timeout, mem_hndl_))) {
 			if (cur_pic_no < 0) {
 				fprintf(stderr, " [-] Fg_getLastPicNumberBlockingEx(%li) failed: %s\n", last_pic_no + 1, Fg_getLastErrorDescription(fg_));
@@ -127,21 +130,46 @@ namespace ic {
 				return;
 			}
 			last_pic_no = cur_pic_no;
+			boost::posix_time::ptime timestamp = boost::posix_time::microsec_clock::universal_time();
 			DrawBuffer(disp_id_, Fg_getImagePtrEx(fg_, last_pic_no, cam_port_, mem_hndl_), static_cast<int>(last_pic_no), "");
-			//WriteFITS("test.fits", static_cast<unsigned char*>(Fg_getImagePtrEx(fg, last_pic_no, cam_port, mem_hndl)), width, height);
+			if (enable_saving_) {
+				data::Buffer buf;
+				buf.config = data::AttributeTable::create();
+				if ( obv_start_timestamp == "" ) {
+					obv_start_timestamp = boost::posix_time::to_iso_string(timestamp);
+				}
+				buf.config->insert( "ObvStartTimestamp", obv_start_timestamp );
+				buf.config->insert( "Timestamp", boost::posix_time::to_iso_string(timestamp) );
+				buf.config->insert( "FrameIndex", index );
+				buf.config->insert( "Width", width_ );
+				buf.config->insert( "Height", height_ );
+				buf.config->insert("PortName", port_name);
+				int size = width_ * height_;
+				buf.data = new unsigned short[size]();
+				unsigned char *p = static_cast<unsigned char*>(Fg_getImagePtrEx(fg_, last_pic_no, cam_port_, mem_hndl_));
+				for (int i = 0; i < size; i++) {
+					buf.data[i] = p[i];
+				}
+				data_que_->Enqueue(buf);
+				index++;
+				if (index % fixed_frame_ == 0) {
+					data_que_->WaitForEmpty();
+					//std::cout << "WAITING FOR EMPTY!" << std::endl;
+				}
+			}
 			boost::this_thread::interruption_point();
 		}
 
-//LARGE_INTEGER starting_time, ending_time, elapsed_microseconds;
-//LARGE_INTEGER frequency;
-//QueryPerformanceFrequency(&frequency); 
-//QueryPerformanceCounter(&starting_time);
-//
-//		while( true ) {
-//			boost::posix_time::ptime timestamp = boost::posix_time::microsec_clock::universal_time();
-//			
-//			boost::this_thread::interruption_point();
-//		}
+		//LARGE_INTEGER starting_time, ending_time, elapsed_microseconds;
+		//LARGE_INTEGER frequency;
+		//QueryPerformanceFrequency(&frequency); 
+		//QueryPerformanceCounter(&starting_time);
+		//
+		//		while( true ) {
+		//			boost::posix_time::ptime timestamp = boost::posix_time::microsec_clock::universal_time();
+		//			
+		//			boost::this_thread::interruption_point();
+		//		}
 	} catch(const boost::thread_interrupted&) {
 		std::cout << "\n  [+] Oops, Interrupted" << std::endl;
 
@@ -150,7 +178,7 @@ namespace ic {
 		Fg_stopAcquire(fg_, cam_port_);
 		Fg_FreeMemEx(fg_, mem_hndl_);
 		Fg_FreeGrabber(fg_);
-	
+		mem_hndl_ = NULL;
 	}
 
 	int Camera::Start() {
@@ -179,7 +207,7 @@ namespace ic {
 		connection_lost_	= true;
 		fg_					= NULL;
 		int board_no		= SelectBoardDialog();
-		cam_port_			= PORT_B;
+		cam_port_			= port;
 
 		width_					= 1024;
 		height_					= 1024;
@@ -213,7 +241,7 @@ namespace ic {
 			fprintf(stderr, " [-] Error in Fg_Init: %s\n", Fg_getLastErrorDescription(NULL));
 			return -1;
 		}
-		
+
 		connection_lost_ = false;
 		return 0;
 	}

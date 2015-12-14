@@ -15,11 +15,6 @@
 namespace ic {
 	class Camera {
 	public:
-		enum Constants {
-			kNumberOfBuffers = 10,
-			kTemperature = 0
-		};
-
 		Camera( data::SynchronisedQueue< data::Buffer > *data_que );
 		~Camera( void );
 
@@ -29,7 +24,8 @@ namespace ic {
 
 		void ShutDown();
 		int Connect(int port);
-
+		
+		void EnableSaving(bool v);
 	private:
 		boost::thread *thread_;
 		data::SynchronisedQueue< data::Buffer > *data_que_;
@@ -37,11 +33,12 @@ namespace ic {
 		bool connection_lost_;
 		unsigned int width_, height_;
 		int fixed_frame_;
+		bool enable_saving_;
 
-				Fg_Struct *fg_;
-				int cam_port_;
-				int disp_id_;
-				dma_mem *mem_hndl_;
+		Fg_Struct *fg_;
+		int cam_port_;
+		int disp_id_;
+		dma_mem *mem_hndl_;
 	};
 }
 #endif
