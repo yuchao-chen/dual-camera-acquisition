@@ -16,12 +16,12 @@
 #include "board-and-dll-chooser.h"
 
 int main( int argc, char *argv[] ) {
-	bool working = false;
+
 	std::cout << "\n--------- Initialising Devices ----------\n";
 	data::SynchronisedQueue< data::Buffer > data_que;
 	ic::Camera camera( &data_que );
 	dh::DataHandle data_handle( &data_que );
-	camera.Connect();
+	camera.Connect(1);
 	
 	std::string input;
 	while( true ) {
@@ -45,8 +45,7 @@ int main( int argc, char *argv[] ) {
 			} else if ( input == "2" ) {
 				break;
 			} else if ( input == "3" ) {
-				if ( !working ) {
-				}
+
 			}
 		}
 

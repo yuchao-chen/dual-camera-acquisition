@@ -3,6 +3,12 @@
 
 #include <boost/thread/thread.hpp>
 
+#include <fgrab_struct.h>
+#include <fgrab_prototyp.h>
+#include <fgrab_define.h>
+#include <SisoDisplay.h>
+#include <fitsio.h>
+
 #include "buffer.h"
 #include "sync_que.h"
 
@@ -22,15 +28,20 @@ namespace ic {
 		int Start();
 
 		void ShutDown();
-		int Connect();
+		int Connect(int port);
 
 	private:
 		boost::thread *thread_;
 		data::SynchronisedQueue< data::Buffer > *data_que_;
 
 		bool connection_lost_;
-		int width_, height_;
+		unsigned int width_, height_;
 		int fixed_frame_;
+
+				Fg_Struct *fg_;
+				int cam_port_;
+				int disp_id_;
+				dma_mem *mem_hndl_;
 	};
 }
 #endif
